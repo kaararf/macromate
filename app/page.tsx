@@ -2805,6 +2805,12 @@ function History({
   );
 }
 
+function getGoalTypeLabel(goalType: GoalType) {
+  if (goalType === "fat_loss") return "ลดไขมัน";
+  if (goalType === "muscle_gain") return "เพิ่มกล้าม";
+  return "Body Recomp";
+}
+
 function ProfilesPage({
   users,
   activeUserId,
@@ -2932,16 +2938,47 @@ function ProfilesPage({
                         {summary.userProfile.weight} kg
                       </p>
                     </div>
+
                     <div className="rounded-2xl bg-[#050807] p-3">
-                      <p className="text-zinc-500">เป้าหมายแคล</p>
+                      <p className="text-zinc-500">ส่วนสูง</p>
+                      <p className="mt-1 font-semibold">
+                        {summary.userProfile.height} cm
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-[#050807] p-3">
+                      <p className="text-zinc-500">Body Fat</p>
+                      <p className="mt-1 font-semibold">
+                        {summary.userProfile.bodyFat}%
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-[#050807] p-3">
+                      <p className="text-zinc-500">เป้าหมายล่าสุด</p>
+                      <p className="mt-1 font-semibold text-green-400">
+                        {getGoalTypeLabel(summary.userProfile.goalType)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-[#050807] p-3">
+                      <p className="text-zinc-500">แคล / วัน</p>
                       <p className="mt-1 font-semibold">
                         {summary.userTargets.calories} kcal
                       </p>
                     </div>
+
+                    <div className="rounded-2xl bg-[#050807] p-3">
+                      <p className="text-zinc-500">โปรตีนเป้า</p>
+                      <p className="mt-1 font-semibold">
+                        {summary.userTargets.protein} g
+                      </p>
+                    </div>
+
                     <div className="rounded-2xl bg-[#050807] p-3">
                       <p className="text-zinc-500">วันที่มีบันทึก</p>
                       <p className="mt-1 font-semibold">{summary.loggedDays} วัน</p>
                     </div>
+
                     <div className="rounded-2xl bg-[#050807] p-3">
                       <p className="text-zinc-500">Workout</p>
                       <p className="mt-1 font-semibold">
@@ -2987,20 +3024,6 @@ function ProfilesPage({
         })}
       </section>
 
-      <section className="mt-4 rounded-3xl border border-blue-900/40 bg-blue-950/20 p-4">
-        <h2 className="font-semibold text-blue-300">ขั้นต่อไป: ทำเป็นเว็บใช้ที่ไหนก็ได้</h2>
-        <div className="mt-3 space-y-2 text-sm leading-6 text-zinc-400">
-          <p>
-            ตอนนี้ระบบหลายโปรไฟล์ยังเก็บใน localStorage ของเครื่องนี้ เหมาะกับ prototype และทดสอบ flow ก่อน
-          </p>
-          <p>
-            ถ้าจะใช้ได้ทุกเครื่องจริง ขั้นต่อไปควรย้ายข้อมูลไป Supabase หรือ Firebase พร้อมระบบล็อกอิน
-          </p>
-          <p>
-            แผนที่แนะนำ: Deploy บน Vercel → เพิ่ม Supabase Auth → ย้าย profiles, logs, workouts, foods ไป database
-          </p>
-        </div>
-      </section>
     </>
   );
 }
