@@ -454,6 +454,62 @@ function getWorkoutCalories(workouts: WorkoutLog[]) {
   return workouts.reduce((sum, item) => sum + (item.caloriesBurned ?? 0), 0);
 }
 
+function getWeekDateStrings(dateString: string) {
+  const date = new Date(dateString);
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + mondayOffset);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + index);
+    return toDateString(d);
+  });
+}
+
+function getWeeklyEnergySummary({
+  selectedDate,
+  dailyLogs,
+  dailyWorkouts,
+  profile,
+}: {
+  selectedDate: string;
+  dailyLogs: DailyLogs;
+  dailyWorkouts: DailyWorkouts;
+  profile: UserProfile;
+}) {
+  const weekDates = getWeekDateStrings(selectedDate);
+  const bmr = Math.round(calculateBmr(profile));
+
+  const intake = weekDates.reduce((sum, date) => {
+    return sum + getTotalsFromLogs(dailyLogs[date] ?? []).calories;
+  }, 0);
+
+  const exercise = weekDates.reduce((sum, date) => {
+    return sum + getWorkoutCalories(dailyWorkouts[date] ?? []);
+  }, 0);
+
+  const baseBurn = bmr * 7;
+  const totalBurn = baseBurn + exercise;
+  const balance = intake - totalBurn;
+  const deficit = totalBurn - intake;
+
+  return {
+    weekDates,
+    bmr,
+    intake: Math.round(intake),
+    exercise: Math.round(exercise),
+    baseBurn: Math.round(baseBurn),
+    totalBurn: Math.round(totalBurn),
+    balance: Math.round(balance),
+    deficit: Math.round(deficit),
+    avgIntake: Math.round(intake / 7),
+    avgBurn: Math.round(totalBurn / 7),
+    avgBalance: Math.round(balance / 7),
+  };
+}
+
 const STORAGE_KEY = "macromate-v2";
 const LEGACY_STORAGE_KEY = "macromate-v1";
 
@@ -874,6 +930,9 @@ export default function Home() {
             targets={targets}
             logs={logsToday}
             workouts={workoutsToday}
+            dailyLogs={dailyLogs}
+            dailyWorkouts={dailyWorkouts}
+            profile={profile}
             activeUserName={activeUserName}
             onAddFood={() => setActiveTab("add")}
             onGoWorkout={() => setActiveTab("workout")}
@@ -884,12 +943,14 @@ export default function Home() {
         )}
 
         {activeTab === "add" && (
-          <AddFood
+          <FoodPage
             foods={foods}
             amountInputs={amountInputs}
             getAmount={getAmount}
             setFoodAmount={setFoodAmount}
             onAddFood={addFoodToDate}
+            onAddCustomFood={addCustomFood}
+            onDeleteFood={deleteFood}
           />
         )}
 
@@ -900,14 +961,6 @@ export default function Home() {
             workouts={workoutsToday}
             onAddWorkout={addWorkoutToDate}
             onDeleteWorkout={deleteWorkout}
-          />
-        )}
-
-        {activeTab === "database" && (
-          <FoodDatabase
-            foods={foods}
-            onAddCustomFood={addCustomFood}
-            onDeleteFood={deleteFood}
           />
         )}
 
@@ -922,18 +975,6 @@ export default function Home() {
           />
         )}
 
-        {activeTab === "goals" && (
-          <Goals
-            profile={profile}
-            setProfile={setProfile}
-            targets={targets}
-            setTargets={setTargets}
-            recommendedTargets={calculateRecommendedTargets(profile)}
-            onApplyRecommended={applyRecommendedTargets}
-            onResetAllData={resetAllData}
-          />
-        )}
-
         {activeTab === "profiles" && (
           <ProfilesPage
             users={getUsersWithCurrentData()}
@@ -942,6 +983,11 @@ export default function Home() {
             currentTargets={targets}
             currentDailyLogs={dailyLogs}
             currentDailyWorkouts={dailyWorkouts}
+            setProfile={setProfile}
+            setTargets={setTargets}
+            recommendedTargets={calculateRecommendedTargets(profile)}
+            onApplyRecommended={applyRecommendedTargets}
+            onResetAllData={resetAllData}
             onSwitchUser={switchUser}
             onCreateUser={createUser}
             onRenameUser={renameUser}
@@ -962,6 +1008,9 @@ function Dashboard({
   targets,
   logs,
   workouts,
+  dailyLogs,
+  dailyWorkouts,
+  profile,
   activeUserName,
   onAddFood,
   onGoWorkout,
@@ -975,6 +1024,9 @@ function Dashboard({
   targets: Targets;
   logs: MealLog[];
   workouts: WorkoutLog[];
+  dailyLogs: DailyLogs;
+  dailyWorkouts: DailyWorkouts;
+  profile: UserProfile;
   activeUserName: string;
   onAddFood: () => void;
   onGoWorkout: () => void;
@@ -983,6 +1035,12 @@ function Dashboard({
   onUpdateLogAmount: (id: string, amount: number) => void;
 }) {
   const workoutCalories = getWorkoutCalories(workouts);
+  const weeklySummary = getWeeklyEnergySummary({
+    selectedDate,
+    dailyLogs,
+    dailyWorkouts,
+    profile,
+  });
 
   return (
     <>
@@ -1045,6 +1103,8 @@ function Dashboard({
         />
       </section>
 
+      <WeeklyEnergyDashboard summary={weeklySummary} />
+
       <section className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
           <p className="text-sm text-zinc-400">ออกกำลังกาย</p>
@@ -1100,18 +1160,158 @@ function Dashboard({
   );
 }
 
-function AddFood({
+
+function WeeklyEnergyDashboard({
+  summary,
+}: {
+  summary: ReturnType<typeof getWeeklyEnergySummary>;
+}) {
+  const isDeficit = summary.deficit >= 0;
+  const weekLabel = `${summary.weekDates[0]} ถึง ${summary.weekDates[6]}`;
+
+  return (
+    <section className="mt-4 rounded-3xl border border-zinc-800 bg-zinc-950/80 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-zinc-400">Dashboard รายสัปดาห์</p>
+          <h2 className="mt-1 text-lg font-semibold">แคลอรี่รวม 7 วัน</h2>
+          <p className="mt-1 text-xs text-zinc-500">{weekLabel}</p>
+        </div>
+
+        <div className="text-right">
+          <p className={isDeficit ? "font-bold text-green-400" : "font-bold text-red-400"}>
+            {isDeficit ? "Deficit" : "Surplus"}
+          </p>
+          <p className="text-xs text-zinc-500">BMR + ออกกำลังกาย</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">กินรวม</p>
+          <p className="mt-1 font-bold">{summary.intake.toLocaleString()} kcal</p>
+          <p className="mt-1 text-xs text-zinc-500">เฉลี่ย {summary.avgIntake.toLocaleString()} / วัน</p>
+        </div>
+
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">เผาผลาญรวม</p>
+          <p className="mt-1 font-bold">{summary.totalBurn.toLocaleString()} kcal</p>
+          <p className="mt-1 text-xs text-zinc-500">เฉลี่ย {summary.avgBurn.toLocaleString()} / วัน</p>
+        </div>
+
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">BMR รวม</p>
+          <p className="mt-1 font-bold">{summary.baseBurn.toLocaleString()} kcal</p>
+          <p className="mt-1 text-xs text-zinc-500">BMR {summary.bmr.toLocaleString()} / วัน</p>
+        </div>
+
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">ออกกำลังกาย</p>
+          <p className="mt-1 font-bold text-green-400">+{summary.exercise.toLocaleString()} kcal</p>
+          <p className="mt-1 text-xs text-zinc-500">รวมในสัปดาห์นี้</p>
+        </div>
+      </div>
+
+      <div className={`mt-3 rounded-2xl border p-3 ${isDeficit ? "border-green-900/50 bg-green-950/20" : "border-red-900/50 bg-red-950/20"}`}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-zinc-300">
+            {isDeficit ? "ขาดดุลพลังงานรายสัปดาห์" : "เกินดุลพลังงานรายสัปดาห์"}
+          </span>
+          <span className={isDeficit ? "text-lg font-bold text-green-400" : "text-lg font-bold text-red-400"}>
+            {isDeficit ? "-" : "+"}{Math.abs(summary.balance).toLocaleString()} kcal
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-zinc-500">
+          เฉลี่ย {summary.avgBalance > 0 ? "+" : ""}{summary.avgBalance.toLocaleString()} kcal / วัน จากสูตร กิน - (BMR + แคลออกกำลังกาย)
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function FoodPage({
   foods,
   amountInputs,
   getAmount,
   setFoodAmount,
   onAddFood,
+  onAddCustomFood,
+  onDeleteFood,
 }: {
   foods: Food[];
   amountInputs: Record<string, number>;
   getAmount: (food: Food) => number;
   setFoodAmount: (foodId: string, amount: number) => void;
   onAddFood: (food: Food, mealType: string) => void;
+  onAddCustomFood: (food: Food) => void;
+  onDeleteFood: (foodId: string) => void;
+}) {
+  const [mode, setMode] = useState<"log" | "database">("log");
+
+  return (
+    <>
+      <header className="mb-4">
+        <p className="text-sm text-zinc-400">Food Log + Database</p>
+        <h1 className="mt-2 text-2xl font-bold">อาหาร</h1>
+        <p className="mt-2 text-sm leading-6 text-zinc-500">
+          เลือกอาหารเพื่อบันทึก หรือเพิ่ม/ค้นหาอาหารใหม่ในฐานข้อมูลจากหน้าเดียว
+        </p>
+      </header>
+
+      <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-1 text-sm">
+        <button
+          onClick={() => setMode("log")}
+          className={`rounded-xl px-3 py-2 font-semibold active:scale-95 ${
+            mode === "log" ? "bg-green-600 text-white" : "text-zinc-400"
+          }`}
+        >
+          บันทึกอาหาร
+        </button>
+        <button
+          onClick={() => setMode("database")}
+          className={`rounded-xl px-3 py-2 font-semibold active:scale-95 ${
+            mode === "database" ? "bg-green-600 text-white" : "text-zinc-400"
+          }`}
+        >
+          ฐานข้อมูล
+        </button>
+      </div>
+
+      {mode === "log" ? (
+        <AddFood
+          foods={foods}
+          amountInputs={amountInputs}
+          getAmount={getAmount}
+          setFoodAmount={setFoodAmount}
+          onAddFood={onAddFood}
+          hideHeader
+        />
+      ) : (
+        <FoodDatabase
+          foods={foods}
+          onAddCustomFood={onAddCustomFood}
+          onDeleteFood={onDeleteFood}
+          hideHeader
+        />
+      )}
+    </>
+  );
+}
+
+function AddFood({
+  foods,
+  amountInputs,
+  getAmount,
+  setFoodAmount,
+  onAddFood,
+  hideHeader = false,
+}: {
+  foods: Food[];
+  amountInputs: Record<string, number>;
+  getAmount: (food: Food) => number;
+  setFoodAmount: (foodId: string, amount: number) => void;
+  onAddFood: (food: Food, mealType: string) => void;
+  hideHeader?: boolean;
 }) {
   const [mealType, setMealType] = useState("กลางวัน");
   const [search, setSearch] = useState("");
@@ -1122,10 +1322,12 @@ function AddFood({
 
   return (
     <>
-      <header className="mb-6">
-        <p className="text-sm text-zinc-400">เลือกอาหารและใส่ปริมาณจริง</p>
-        <h1 className="mt-2 text-2xl font-bold">เพิ่มอาหาร</h1>
-      </header>
+      {!hideHeader && (
+        <header className="mb-6">
+          <p className="text-sm text-zinc-400">เลือกอาหารและใส่ปริมาณจริง</p>
+          <h1 className="mt-2 text-2xl font-bold">เพิ่มอาหาร</h1>
+        </header>
+      )}
 
       <input
         value={search}
@@ -1183,8 +1385,9 @@ function AddFood({
                   type="number"
                   min="0"
                   value={amount}
+                  onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) =>
-                    setFoodAmount(food.id, Number(e.target.value))
+                    setFoodAmount(food.id, e.target.value === "" ? 0 : Number(e.target.value))
                   }
                   className="w-28 rounded-xl border border-zinc-800 bg-[#050807] px-3 py-2 text-sm outline-none"
                 />
@@ -2114,10 +2317,12 @@ function FoodDatabase({
   foods,
   onAddCustomFood,
   onDeleteFood,
+  hideHeader = false,
 }: {
   foods: Food[];
   onAddCustomFood: (food: Food) => void;
   onDeleteFood: (foodId: string) => void;
+  hideHeader?: boolean;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
@@ -2220,19 +2425,32 @@ function FoodDatabase({
 
   return (
     <>
-      <header className="mb-6 flex items-end justify-between">
-        <div>
-          <p className="text-sm text-zinc-400">อาหารทั้งหมด</p>
-          <h1 className="mt-2 text-2xl font-bold">ฐานข้อมูลอาหาร</h1>
-        </div>
+      {!hideHeader && (
+        <header className="mb-6 flex items-end justify-between">
+          <div>
+            <p className="text-sm text-zinc-400">อาหารทั้งหมด</p>
+            <h1 className="mt-2 text-2xl font-bold">ฐานข้อมูลอาหาร</h1>
+          </div>
 
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold active:scale-95"
-        >
-          + อาหารใหม่
-        </button>
-      </header>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold active:scale-95"
+          >
+            + อาหารใหม่
+          </button>
+        </header>
+      )}
+
+      {hideHeader && (
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold active:scale-95"
+          >
+            + อาหารใหม่
+          </button>
+        </div>
+      )}
 
       <section className="mb-4 rounded-3xl border border-green-900/60 bg-green-950/20 p-4">
         <h2 className="font-semibold text-green-400">Food Data Agent</h2>
@@ -2517,7 +2735,7 @@ function History({
     <>
       <header className="mb-6">
         <p className="text-sm text-zinc-400">Calendar + Daily Checklist</p>
-        <h1 className="mt-2 text-2xl font-bold">ย้อนหลัง</h1>
+        <h1 className="mt-2 text-2xl font-bold">ปฏิทิน</h1>
       </header>
 
       <section className="rounded-3xl border border-zinc-800 bg-zinc-950/80 p-4">
@@ -2818,6 +3036,11 @@ function ProfilesPage({
   currentTargets,
   currentDailyLogs,
   currentDailyWorkouts,
+  setProfile,
+  setTargets,
+  recommendedTargets,
+  onApplyRecommended,
+  onResetAllData,
   onSwitchUser,
   onCreateUser,
   onRenameUser,
@@ -2829,6 +3052,11 @@ function ProfilesPage({
   currentTargets: Targets;
   currentDailyLogs: DailyLogs;
   currentDailyWorkouts: DailyWorkouts;
+  setProfile: (profile: UserProfile) => void;
+  setTargets: (targets: Targets) => void;
+  recommendedTargets: Targets;
+  onApplyRecommended: () => void;
+  onResetAllData: () => void;
   onSwitchUser: (userId: string) => void;
   onCreateUser: (name: string) => void;
   onRenameUser: (userId: string, name: string) => void;
@@ -3024,6 +3252,24 @@ function ProfilesPage({
         })}
       </section>
 
+      <section className="mt-6 rounded-3xl border border-green-900/50 bg-green-950/10 p-4">
+        <p className="text-sm text-zinc-400">Active profile settings</p>
+        <h2 className="mt-1 text-xl font-bold">ปรับโปรไฟล์และเป้าหมายของคนที่เลือก</h2>
+        <p className="mt-2 text-xs leading-5 text-zinc-500">
+          ค่าที่แก้ตรงนี้จะผูกกับโปรไฟล์ที่กำลังใช้งานอยู่เท่านั้น
+        </p>
+      </section>
+
+      <Goals
+        profile={currentProfile}
+        setProfile={setProfile}
+        targets={currentTargets}
+        setTargets={setTargets}
+        recommendedTargets={recommendedTargets}
+        onApplyRecommended={onApplyRecommended}
+        onResetAllData={onResetAllData}
+        hideHeader
+      />
     </>
   );
 }
@@ -3036,6 +3282,7 @@ function Goals({
   recommendedTargets,
   onApplyRecommended,
   onResetAllData,
+  hideHeader = false,
 }: {
   profile: UserProfile;
   setProfile: (profile: UserProfile) => void;
@@ -3044,6 +3291,7 @@ function Goals({
   recommendedTargets: Targets;
   onApplyRecommended: () => void;
   onResetAllData: () => void;
+  hideHeader?: boolean;
 }) {
   const bmr = Math.round(calculateBmr(profile));
   const tdee = Math.round(calculateTdee(profile));
@@ -3084,10 +3332,12 @@ function Goals({
 
   return (
     <>
-      <header className="mb-6">
-        <p className="text-sm text-zinc-400">Profile + Macro Target</p>
-        <h1 className="mt-2 text-2xl font-bold">เป้าหมาย</h1>
-      </header>
+      {!hideHeader && (
+        <header className="mb-6">
+          <p className="text-sm text-zinc-400">Profile + Macro Target</p>
+          <h1 className="mt-2 text-2xl font-bold">เป้าหมาย</h1>
+        </header>
+      )}
 
       <section className="rounded-3xl border border-zinc-800 bg-zinc-950/80 p-4">
         <h2 className="mb-3 font-semibold">ข้อมูลร่างกาย</h2>
@@ -3377,7 +3627,8 @@ function MealCard({
               type="number"
               min="0"
               value={item.amount}
-              onChange={(e) => onUpdateAmount(Number(e.target.value))}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => onUpdateAmount(e.target.value === "" ? 0 : Number(e.target.value))}
               className="w-24 rounded-xl border border-zinc-800 bg-[#050807] px-3 py-2 text-sm outline-none"
             />
 
@@ -3480,14 +3731,34 @@ function NumberInput({
   value: number;
   onChange: (value: number) => void;
 }) {
+  const [text, setText] = useState(String(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) setText(String(value));
+  }, [value, isFocused]);
+
   return (
     <label className="mb-3 block">
       <span className="text-sm text-zinc-400">{label}</span>
 
       <input
         type="number"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        inputMode="decimal"
+        value={text}
+        onFocus={(e) => {
+          setIsFocused(true);
+          e.currentTarget.select();
+        }}
+        onBlur={() => {
+          setIsFocused(false);
+          if (text.trim() === "") setText("0");
+        }}
+        onChange={(e) => {
+          const next = e.target.value;
+          setText(next);
+          onChange(next === "" ? 0 : Number(next));
+        }}
         className="mt-1 w-full rounded-xl border border-zinc-800 bg-[#050807] px-3 py-3 text-sm outline-none"
       />
     </label>
@@ -3505,14 +3776,12 @@ function BottomNav({
     { label: "หน้าหลัก", tab: "home" },
     { label: "อาหาร", tab: "add" },
     { label: "ออกกำลัง", tab: "workout" },
-    { label: "ฐาน", tab: "database" },
-    { label: "ย้อนหลัง", tab: "history" },
-    { label: "เป้า", tab: "goals" },
+    { label: "ปฏิทิน", tab: "history" },
     { label: "โปรไฟล์", tab: "profiles" },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-1/2 grid w-full max-w-md -translate-x-1/2 grid-cols-7 border-t border-zinc-800 bg-[#050807]/95 px-1 py-3 text-[11px] text-zinc-500 backdrop-blur">
+    <nav className="fixed bottom-0 left-1/2 grid w-full max-w-md -translate-x-1/2 grid-cols-5 border-t border-zinc-800 bg-[#050807]/95 px-1 py-3 text-[11px] text-zinc-500 backdrop-blur">
       {items.map((item) => (
         <button
           key={item.tab}
