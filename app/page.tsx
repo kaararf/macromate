@@ -40,6 +40,9 @@ type WorkoutType =
   | "bicep"
   | "shoulder"
   | "cardio"
+  | "pushup"
+  | "pullup"
+  | "parallel_dip"
   | "rest"
   | "custom";
 
@@ -105,6 +108,7 @@ type WorkoutLog = {
   types: WorkoutType[];
   label: string;
   durationMinutes: number;
+  repsCount?: number;
   intensity: WorkoutIntensity;
   caloriesBurned: number;
   caloriesSource: WorkoutSource;
@@ -269,6 +273,9 @@ const workoutOptions: {
   { type: "bicep", label: "Bicep" },
   { type: "shoulder", label: "Shoulder" },
   { type: "cardio", label: "Cardio" },
+  { type: "pushup", label: "Push-up" },
+  { type: "pullup", label: "Pull-up" },
+  { type: "parallel_dip", label: "Parallel Bar Dip" },
   { type: "rest", label: "Rest" },
 ];
 
@@ -507,6 +514,35 @@ function getWeeklyEnergySummary({
     avgIntake: Math.round(intake / 7),
     avgBurn: Math.round(totalBurn / 7),
     avgBalance: Math.round(balance / 7),
+  };
+}
+
+function getDailyEnergySummary({
+  selectedDate,
+  dailyLogs,
+  dailyWorkouts,
+  profile,
+}: {
+  selectedDate: string;
+  dailyLogs: DailyLogs;
+  dailyWorkouts: DailyWorkouts;
+  profile: UserProfile;
+}) {
+  const bmr = Math.round(calculateBmr(profile));
+  const intake = getTotalsFromLogs(dailyLogs[selectedDate] ?? []).calories;
+  const exercise = getWorkoutCalories(dailyWorkouts[selectedDate] ?? []);
+  const totalBurn = bmr + exercise;
+  const balance = intake - totalBurn;
+  const deficit = totalBurn - intake;
+
+  return {
+    date: selectedDate,
+    bmr,
+    intake: Math.round(intake),
+    exercise: Math.round(exercise),
+    totalBurn: Math.round(totalBurn),
+    balance: Math.round(balance),
+    deficit: Math.round(deficit),
   };
 }
 
@@ -1035,6 +1071,12 @@ function Dashboard({
   onUpdateLogAmount: (id: string, amount: number) => void;
 }) {
   const workoutCalories = getWorkoutCalories(workouts);
+  const dailySummary = getDailyEnergySummary({
+    selectedDate,
+    dailyLogs,
+    dailyWorkouts,
+    profile,
+  });
   const weeklySummary = getWeeklyEnergySummary({
     selectedDate,
     dailyLogs,
@@ -1103,6 +1145,8 @@ function Dashboard({
         />
       </section>
 
+      <DailyEnergyDashboard summary={dailySummary} />
+
       <WeeklyEnergyDashboard summary={weeklySummary} />
 
       <section className="mt-4 grid grid-cols-2 gap-3">
@@ -1122,7 +1166,7 @@ function Dashboard({
         >
           <p className="text-sm text-green-400">Training Log</p>
           <p className="mt-1 font-semibold">บันทึกออกกำลัง</p>
-          <p className="mt-1 text-xs text-zinc-500">Push / Pull / Leg / Cardio</p>
+          <p className="mt-1 text-xs text-zinc-500">Push / Pull / Push-up / Pull-up</p>
         </button>
       </section>
 
@@ -1160,6 +1204,54 @@ function Dashboard({
   );
 }
 
+
+function DailyEnergyDashboard({
+  summary,
+}: {
+  summary: ReturnType<typeof getDailyEnergySummary>;
+}) {
+  const isDeficit = summary.deficit >= 0;
+
+  return (
+    <section className={`mt-4 rounded-3xl border p-4 ${isDeficit ? "border-green-900/50 bg-green-950/20" : "border-red-900/50 bg-red-950/20"}`}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-zinc-400">Dashboard รายวัน</p>
+          <h2 className="mt-1 text-lg font-semibold">
+            {isDeficit ? "Daily Deficit" : "Daily Surplus"}
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            สูตร: กิน - (BMR + แคลออกกำลังกาย)
+          </p>
+        </div>
+
+        <div className="text-right">
+          <p className={isDeficit ? "text-2xl font-bold text-green-400" : "text-2xl font-bold text-red-400"}>
+            {isDeficit ? "-" : "+"}{Math.abs(summary.balance).toLocaleString()}
+          </p>
+          <p className="text-xs text-zinc-500">kcal วันนี้</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">กิน</p>
+          <p className="mt-1 font-bold">{summary.intake.toLocaleString()}</p>
+        </div>
+
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">BMR</p>
+          <p className="mt-1 font-bold">{summary.bmr.toLocaleString()}</p>
+        </div>
+
+        <div className="rounded-2xl bg-[#050807] p-3">
+          <p className="text-zinc-500">ออกกำลัง</p>
+          <p className="mt-1 font-bold text-green-400">+{summary.exercise.toLocaleString()}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function WeeklyEnergyDashboard({
   summary,
@@ -1504,6 +1596,18 @@ const workoutActivationMap: Record<WorkoutType, MuscleActivation> = {
   cardio: {
     primary: ["quads", "calves"],
     secondary: ["abs", "obliques", "glutes", "hamstrings"],
+  },
+  pushup: {
+    primary: ["chest", "triceps", "frontShoulder"],
+    secondary: ["sideShoulder", "abs", "obliques"],
+  },
+  pullup: {
+    primary: ["lats", "biceps", "traps"],
+    secondary: ["rearShoulder", "forearms", "abs"],
+  },
+  parallel_dip: {
+    primary: ["triceps", "chest", "frontShoulder"],
+    secondary: ["sideShoulder", "abs"],
   },
   rest: {
     primary: [],
@@ -2088,7 +2192,7 @@ function WorkoutPage({
   onDeleteWorkout: (id: string) => void;
 }) {
   const [selectedTypes, setSelectedTypes] = useState<WorkoutType[]>(["push"]);
-  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [repsCount, setRepsCount] = useState(30);
   const [intensity, setIntensity] = useState<WorkoutIntensity>("moderate");
   const [caloriesBurned, setCaloriesBurned] = useState(0);
   const [notes, setNotes] = useState("");
@@ -2115,13 +2219,13 @@ function WorkoutPage({
   function estimateCalories() {
     if (selectedTypes.includes("rest")) return 0;
 
-    const basePerMinute =
-      intensity === "light" ? 4 : intensity === "moderate" ? 6 : 8;
+    const basePerRep =
+      intensity === "light" ? 0.25 : intensity === "moderate" ? 0.4 : 0.6;
 
     const hasCardio = selectedTypes.includes("cardio");
-    const cardioBonus = hasCardio ? 2 : 0;
+    const cardioBonus = hasCardio ? 0.15 : 0;
 
-    return Math.round(durationMinutes * (basePerMinute + cardioBonus));
+    return Math.round(repsCount * (basePerRep + cardioBonus));
   }
 
   function useEstimatedCalories() {
@@ -2137,7 +2241,8 @@ function WorkoutPage({
     onAddWorkout({
       types: selectedTypes,
       label: label || "Workout",
-      durationMinutes,
+      durationMinutes: repsCount,
+      repsCount,
       intensity,
       caloriesBurned: caloriesBurned || estimateCalories(),
       caloriesSource: "manual",
@@ -2169,7 +2274,7 @@ function WorkoutPage({
           <div>
             <h2 className="text-lg font-semibold">บันทึกการออกกำลังกาย</h2>
             <p className="mt-1 text-xs text-zinc-500">
-              เลือกได้หลายกลุ่ม เช่น Chest + Tricep + Cardio
+              เลือกได้หลายกลุ่ม เช่น Push-up + Pull-up + Parallel Bar Dip
             </p>
           </div>
 
@@ -2205,9 +2310,9 @@ function WorkoutPage({
 
         <div className="grid grid-cols-2 gap-3">
           <NumberInput
-            label="เวลา นาที"
-            value={durationMinutes}
-            onChange={setDurationMinutes}
+            label="จำนวนครั้ง / รวม reps"
+            value={repsCount}
+            onChange={setRepsCount}
           />
 
           <label className="mb-3 block">
@@ -2283,7 +2388,7 @@ function WorkoutPage({
                   <p className="font-medium">{workout.label}</p>
 
                   <p className="text-xs text-zinc-500">
-                    {workout.durationMinutes} นาที · {workout.intensity}
+                    {workout.repsCount ?? workout.durationMinutes} reps · {workout.intensity}
                     {workout.notes ? ` · ${workout.notes}` : ""}
                   </p>
 
@@ -2935,7 +3040,7 @@ function History({
                 <div>
                   <p className="font-medium">{workout.label}</p>
                   <p className="text-xs text-zinc-500">
-                    {workout.durationMinutes} นาที · {workout.intensity}
+                    {workout.repsCount ?? workout.durationMinutes} reps · {workout.intensity}
                   </p>
                 </div>
 
